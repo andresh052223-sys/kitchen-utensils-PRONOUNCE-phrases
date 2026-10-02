@@ -14,7 +14,26 @@ import { INITIAL_STUDENTS } from './data/culinaryItems';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'practice' | 'history' | 'reports'>('practice');
-  const [isAddStudentOpen, setIsAddStudentOpen] = useState<boolean>(false);
+
+  // Check if first-time student registration was already done
+  const [isFirstVisit, setIsFirstVisit] = useState<boolean>(() => {
+    try {
+      const hasCompleted = localStorage.getItem('culinary_registered_user_v1');
+      return !hasCompleted;
+    } catch {
+      return false;
+    }
+  });
+
+  // Open registration modal automatically on first launch
+  const [isAddStudentOpen, setIsAddStudentOpen] = useState<boolean>(() => {
+    try {
+      const hasCompleted = localStorage.getItem('culinary_registered_user_v1');
+      return !hasCompleted;
+    } catch {
+      return false;
+    }
+  });
 
   // Load students from localStorage or use defaults
   const [students, setStudents] = useState<Student[]>(() => {
@@ -102,15 +121,23 @@ export default function App() {
 
   // When a new apprentice is added, RESET all history and reports so they start completely clean
   const handleAddStudent = (newStudent: Student) => {
-    setStudents(prev => [newStudent, ...prev]);
+    setStudents(prev => [newStudent, ...prev.filter(s => s.id !== newStudent.id)]);
     setCurrentStudent(newStudent);
+    setIsFirstVisit(false);
+    
+    // Mark registration completed
+    try {
+      localStorage.setItem('culinary_registered_user_v1', 'true');
+      localStorage.setItem('culinary_current_student_id', newStudent.id);
+      localStorage.removeItem(`culinary_progress_${newStudent.id}`);
+    } catch {
+      // ignore
+    }
     
     // Reset history and reports for a fresh start
     setAttempts([]);
     try {
       localStorage.setItem('culinary_attempts', JSON.stringify([]));
-      localStorage.setItem('culinary_current_student_id', newStudent.id);
-      localStorage.removeItem(`culinary_progress_${newStudent.id}`);
     } catch {
       // ignore
     }
@@ -147,7 +174,10 @@ export default function App() {
         students={students}
         currentStudent={currentStudent}
         onSelectStudent={(student) => setCurrentStudent(student)}
-        onOpenAddStudent={() => setIsAddStudentOpen(true)}
+        onOpenAddStudent={() => {
+          setIsFirstVisit(false);
+          setIsAddStudentOpen(true);
+        }}
       />
 
       {/* Main Content Area */}
@@ -220,6 +250,7 @@ export default function App() {
         isOpen={isAddStudentOpen}
         onClose={() => setIsAddStudentOpen(false)}
         onAddStudent={handleAddStudent}
+        isFirstTime={isFirstVisit}
       />
 
     </div>

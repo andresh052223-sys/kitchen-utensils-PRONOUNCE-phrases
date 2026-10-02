@@ -24,6 +24,7 @@ interface SpeechRecognitionInstance {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  maxAlternatives?: number;
   start: () => void;
   stop: () => void;
   abort: () => void;
@@ -38,6 +39,55 @@ declare global {
     SpeechRecognition?: new () => SpeechRecognitionInstance;
     webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
   }
+}
+
+/**
+ * Deduplicates repeated consecutive words and repeated multi-word phrase loops
+ * that mobile Web Speech API (especially Android Chrome) can emit during continuous recognition.
+ */
+export function deduplicateRepeatedPhrases(rawText: string): string {
+  if (!rawText) return '';
+  
+  // Normalize whitespace
+  let text = rawText.replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+
+  // 1. Remove immediate consecutive duplicate words: "the the the" -> "the"
+  const words = text.split(' ');
+  const singleDeduped: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
+      singleDeduped.push(words[i]);
+    }
+  }
+
+  let result = singleDeduped.join(' ');
+
+  // 2. Remove immediate consecutive repeated multi-word phrase patterns:
+  // e.g. "the chips nice the chips nice" -> "the chips nice"
+  for (let len = 10; len >= 2; len--) {
+    let changed = true;
+    let safety = 0;
+    while (changed && safety < 20) {
+      changed = false;
+      safety++;
+      const tokens = result.split(' ');
+      if (tokens.length < len * 2) break;
+
+      for (let i = 0; i <= tokens.length - len * 2; i++) {
+        const chunkA = tokens.slice(i, i + len).join(' ').toLowerCase();
+        const chunkB = tokens.slice(i + len, i + len * 2).join(' ').toLowerCase();
+        if (chunkA === chunkB) {
+          tokens.splice(i + len, len);
+          result = tokens.join(' ');
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  return result.trim();
 }
 
 export function useSpeechRecognition(lang: string = 'en-US') {
@@ -61,7 +111,10 @@ export function useSpeechRecognition(lang: string = 'en-US') {
       const recognition = new SpeechRecognitionClass();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = lang; // Defaults to English ('en-US') for technical pronunciation
+      recognition.lang = lang; // English ('en-US') for technical culinary pronunciation
+      if ('maxAlternatives' in recognition) {
+        recognition.maxAlternatives = 1;
+      }
 
       recognition.onstart = () => {
         setIsListening(true);
@@ -69,23 +122,29 @@ export function useSpeechRecognition(lang: string = 'en-US') {
       };
 
       recognition.onresult = (event: SpeechRecognitionEventLike) => {
-        let currentInterim = '';
-        let currentFinal = '';
+        let finalStr = '';
+        let interimStr = '';
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
+        // Build cleanly from the cumulative results array.
+        // DO NOT append to an external accumulator to prevent duplicate compounding on mobile!
+        for (let i = 0; i < event.results.length; ++i) {
           const result = event.results[i];
+          const text = (result[0]?.transcript || '').trim();
+          if (!text) continue;
+
           if (result.isFinal) {
-            currentFinal += result[0].transcript + ' ';
+            finalStr += (finalStr ? ' ' : '') + text;
           } else {
-            currentInterim += result[0].transcript;
+            interimStr += (interimStr ? ' ' : '') + text;
           }
         }
 
-        if (currentFinal) {
-          finalTranscriptRef.current = (finalTranscriptRef.current + ' ' + currentFinal).trim();
-          setTranscript(finalTranscriptRef.current);
-        }
-        setInterimTranscript(currentInterim);
+        const cleanFinal = deduplicateRepeatedPhrases(finalStr);
+        const cleanInterim = deduplicateRepeatedPhrases(interimStr);
+
+        finalTranscriptRef.current = cleanFinal;
+        setTranscript(cleanFinal);
+        setInterimTranscript(cleanInterim);
       };
 
       recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
@@ -94,9 +153,9 @@ export function useSpeechRecognition(lang: string = 'en-US') {
           return;
         }
         if (event.error === 'not-allowed') {
-          setErrorMessage('Permiso de micrófono denegado. Permite el acceso al micrófono en la barra del navegador.');
+          setErrorMessage('Permiso de micrófono denegado. Permite el acceso al micrófono en tu navegador.');
         } else {
-          setErrorMessage(`Error de reconocimiento: ${event.error}`);
+          setErrorMessage(`Aviso de micrófono: ${event.error}`);
         }
         setIsListening(false);
       };
@@ -120,7 +179,7 @@ export function useSpeechRecognition(lang: string = 'en-US') {
         }
       }
     };
-  }, []);
+  }, [lang]);
 
   const startListening = useCallback(() => {
     setErrorMessage(null);
@@ -129,7 +188,7 @@ export function useSpeechRecognition(lang: string = 'en-US') {
     finalTranscriptRef.current = '';
 
     if (!recognitionRef.current) {
-      setErrorMessage('Tu navegador no soporta la API de reconocimiento de voz. Puedes usar el modo de prueba simulada.');
+      setErrorMessage('Tu navegador no soporta la API de reconocimiento de voz.');
       return;
     }
 
@@ -138,8 +197,14 @@ export function useSpeechRecognition(lang: string = 'en-US') {
     } catch {
       // If already started or aborting
       try {
-        recognitionRef.current.stop();
-        setTimeout(() => recognitionRef.current?.start(), 150);
+        recognitionRef.current.abort();
+        setTimeout(() => {
+          try {
+            recognitionRef.current?.start();
+          } catch {
+            // ignore
+          }
+        }, 150);
       } catch {
         // ignore
       }
@@ -164,16 +229,30 @@ export function useSpeechRecognition(lang: string = 'en-US') {
   }, []);
 
   const setManualTranscript = useCallback((text: string) => {
-    finalTranscriptRef.current = text;
-    setTranscript(text);
+    const clean = deduplicateRepeatedPhrases(text);
+    finalTranscriptRef.current = clean;
+    setTranscript(clean);
     setInterimTranscript('');
   }, []);
+
+  // Compute clean unified full transcript
+  const computedFullTranscript = (() => {
+    const t = transcript.trim();
+    const it = interimTranscript.trim();
+    if (t && it) {
+      if (t.toLowerCase().endsWith(it.toLowerCase())) {
+        return t;
+      }
+      return deduplicateRepeatedPhrases(`${t} ${it}`);
+    }
+    return t || it;
+  })();
 
   return {
     isListening,
     transcript,
     interimTranscript,
-    fullTranscript: (transcript + (interimTranscript ? ' ' + interimTranscript : '')).trim(),
+    fullTranscript: computedFullTranscript,
     isSupported,
     errorMessage,
     startListening,

@@ -211,8 +211,9 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
   const handleToggleListening = () => {
     if (isListening) {
       stopListening();
-      if (fullTranscript) {
-        performEvaluation(fullTranscript);
+      const textToEval = fullTranscript.trim();
+      if (textToEval) {
+        performEvaluation(textToEval);
       }
     } else {
       resetTranscript();
@@ -221,6 +222,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
       startListening();
     }
   };
+
+  // Automatically trigger evaluation when speech recognition finishes naturally after speaking
+  useEffect(() => {
+    if (!isListening && fullTranscript.trim() && !hasEvaluatedCurrent) {
+      performEvaluation(fullTranscript.trim());
+    }
+  }, [isListening, fullTranscript, hasEvaluatedCurrent]);
 
   const categories = [
     'all',

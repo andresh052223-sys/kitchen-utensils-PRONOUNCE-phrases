@@ -45,14 +45,76 @@ function levenshtein(a: string, b: string): number {
 }
 
 /**
+ * Common culinary phonetic equivalents and speech recognition substitutions,
+ * particularly for Spanish-speakers pronouncing English technical culinary phrases.
+ */
+const PHONETIC_SUBSTITUTIONS: Record<string, string[]> = {
+  chefs: ['chef', 'shef', 'shefs', 'chief', 'chiefs', 'chips', 'cheff'],
+  chef: ['chefs', 'shef', 'shefs', 'chief', 'chips', 'cheff'],
+  knife: ['knives', 'naif', 'nice', 'night', 'knif', 'knifes', 'knife'],
+  knives: ['knife', 'naifs', 'knifs', 'nice'],
+  chop: ['chops', 'shop', 'top', 'drop', 'chopped', 'chob', 'chup'],
+  slice: ['slices', 'slides', 'sliced', 'slays', 'slaise', 'sleis'],
+  mince: ['minced', 'means', 'mines', 'mints', 'mins', 'mynce'],
+  used: ['use', 'uses', 'yuze', 'yused', 'yust'],
+  vegetables: ['vegetable', 'veggies', 'vegtables', 'vegetales', 'vegetabols', 'begitables'],
+  precision: ['presision', 'precision', 'precisión', 'presicion', 'precisiones'],
+  with: ['wit', 'wid', 'whith'],
+  is: ['if', 'es', 'iz', 'it', 'in'],
+  to: ['too', 'two', 'tu', 'do', 'de'],
+  and: ['an', 'en', 'ond'],
+  the: ['de', 'da', 'di'],
+  paring: ['pairing', 'pering', 'peering'],
+  peel: ['pill', 'pealing', 'peeled'],
+  boning: ['bowning', 'bonning', 'bown'],
+  flexible: ['flexibel', 'flexibol'],
+  separates: ['separate', 'separating'],
+  poultry: ['poultri', 'pultry', 'poltry'],
+  whisk: ['wisk', 'whisks', 'wisks', 'which'],
+  sautoir: ['sauter', 'sotoir', 'saute'],
+  skillet: ['skelet', 'skilet'],
+  colander: ['calendar', 'colender'],
+  mandoline: ['mandolin', 'mandolina'],
+  spatula: ['spátula', 'espatula', 'spatchula'],
+  thermometer: ['termometer', 'termometro'],
+  ladle: ['leydel', 'ladel', 'leydle'],
+  tongs: ['tong', 'thongs', 'tungs'],
+  peeler: ['pilar', 'peler', 'pealer'],
+  strainer: ['streiner', 'streyner'],
+  chinois: ['chinoise', 'chinua', 'shinois'],
+};
+
+/**
  * Checks if two words are considered a match (allowing small phonetic/STT tolerance)
  */
 function isWordMatch(targetWord: string, spokenWord: string): boolean {
   if (targetWord === spokenWord) return true;
-  if (targetWord.length >= 4 && spokenWord.length >= 4) {
-    const dist = levenshtein(targetWord, spokenWord);
-    return dist <= 1; // 1 typo allowed for longer words
+
+  // Check phonetic substitutions map
+  const targetSub = PHONETIC_SUBSTITUTIONS[targetWord];
+  if (targetSub && targetSub.includes(spokenWord)) {
+    return true;
   }
+  const spokenSub = PHONETIC_SUBSTITUTIONS[spokenWord];
+  if (spokenSub && spokenSub.includes(targetWord)) {
+    return true;
+  }
+
+  // Singular / Plural / verb ending tolerance
+  if (targetWord + 's' === spokenWord || spokenWord + 's' === targetWord) return true;
+  if (targetWord + 'ed' === spokenWord || spokenWord + 'ed' === targetWord) return true;
+  if (targetWord + 'd' === spokenWord || spokenWord + 'd' === targetWord) return true;
+  if (targetWord + 'es' === spokenWord || spokenWord + 'es' === targetWord) return true;
+
+  // Levenshtein distance check based on length
+  const dist = levenshtein(targetWord, spokenWord);
+  if (targetWord.length >= 7 && spokenWord.length >= 6) {
+    return dist <= 2;
+  }
+  if (targetWord.length >= 4 && spokenWord.length >= 3) {
+    return dist <= 1;
+  }
+
   return false;
 }
 

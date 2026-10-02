@@ -221,7 +221,7 @@ export function exportToPDF(attempts: PracticeAttempt[], student?: Student | nul
 
 /**
  * Generates an official Certificate of Evidence (Certificado de Evidencia de Aprendizaje) in PDF
- * including student name, academic program, and list of correctly pronounced phrases (>=80%).
+ * including student name, academic program, and list of correctly pronounced phrases (>=70%).
  */
 export function exportCertificatePDF(student: Student, attempts: PracticeAttempt[]) {
   // Filter successful attempts for this student
@@ -230,7 +230,7 @@ export function exportCertificatePDF(student: Student, attempts: PracticeAttempt
   );
 
   if (studentSuccessAttempts.length === 0) {
-    alert(`El aprendiz ${student.name} aún no tiene frases aprobadas (≥ 80% de precisión). Realiza prácticas orales exitosas antes de descargar el certificado.`);
+    alert(`El aprendiz ${student.name} aún no tiene frases aprobadas (≥ 70% de precisión). Realiza prácticas orales exitosas antes de descargar el certificado.`);
     return;
   }
 
@@ -326,7 +326,7 @@ export function exportCertificatePDF(student: Student, attempts: PracticeAttempt
   doc.setTextColor(51, 65, 85);
   doc.setFontSize(8.5);
   doc.text(
-    'Ha superado satisfactoriamente los estándares de precisión oral (mínimo 80%) en las siguientes frases técnicas:',
+    'Ha superado satisfactoriamente los estándares de precisión oral (mínimo 70%) en las siguientes frases técnicas:',
     20,
     97
   );

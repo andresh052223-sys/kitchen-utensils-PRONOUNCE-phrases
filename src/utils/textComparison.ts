@@ -85,47 +85,51 @@ const PHONETIC_SUBSTITUTIONS: Record<string, string[]> = {
 };
 
 /**
- * Checks if two words are considered a match (allowing small phonetic/STT tolerance)
+ * Checks and classifies word matching:
+ * - 'correct': exact match or direct inflection
+ * - 'partial': phonetic equivalent, speech recognition accent tolerance, or 1-2 edit distance
+ * - 'none': no match
  */
-function isWordMatch(targetWord: string, spokenWord: string): boolean {
-  if (targetWord === spokenWord) return true;
+export function classifyWordMatch(targetWord: string, spokenWord: string): 'correct' | 'partial' | 'none' {
+  if (targetWord === spokenWord) return 'correct';
 
-  // Check phonetic substitutions map
+  // Direct inflection / plural / past tense
+  if (targetWord + 's' === spokenWord || spokenWord + 's' === targetWord) return 'correct';
+  if (targetWord + 'ed' === spokenWord || spokenWord + 'ed' === targetWord) return 'correct';
+  if (targetWord + 'd' === spokenWord || spokenWord + 'd' === targetWord) return 'correct';
+  if (targetWord + 'es' === spokenWord || spokenWord + 'es' === targetWord) return 'correct';
+
+  // Phonetic substitutions map for non-native culinary pronunciation
   const targetSub = PHONETIC_SUBSTITUTIONS[targetWord];
   if (targetSub && targetSub.includes(spokenWord)) {
-    return true;
+    return 'partial';
   }
   const spokenSub = PHONETIC_SUBSTITUTIONS[spokenWord];
   if (spokenSub && spokenSub.includes(targetWord)) {
-    return true;
+    return 'partial';
   }
 
-  // Singular / Plural / verb ending tolerance
-  if (targetWord + 's' === spokenWord || spokenWord + 's' === targetWord) return true;
-  if (targetWord + 'ed' === spokenWord || spokenWord + 'ed' === targetWord) return true;
-  if (targetWord + 'd' === spokenWord || spokenWord + 'd' === targetWord) return true;
-  if (targetWord + 'es' === spokenWord || spokenWord + 'es' === targetWord) return true;
-
-  // Levenshtein distance check based on length
+  // Levenshtein distance check
   const dist = levenshtein(targetWord, spokenWord);
-  if (targetWord.length >= 7 && spokenWord.length >= 6) {
-    return dist <= 2;
+  if (targetWord.length >= 7 && spokenWord.length >= 6 && dist <= 2) {
+    return 'partial';
   }
-  if (targetWord.length >= 4 && spokenWord.length >= 3) {
-    return dist <= 1;
+  if (targetWord.length >= 4 && spokenWord.length >= 3 && dist <= 1) {
+    return 'partial';
   }
 
-  return false;
+  return 'none';
 }
 
 /**
  * Compares target phrase with spoken phrase.
- * Returns accuracy (0-100), boolean isSuccess (threshold >= 80%), and WordDiff array.
+ * Returns accuracy (0-100), boolean isSuccess (threshold >= 70%), and WordDiff array
+ * with 'correct' (green), 'partial' (yellow), and 'missing' (red).
  */
 export function evaluateSpokenPhrase(
   targetPhrase: string,
   spokenPhrase: string,
-  threshold = 80
+  threshold = 70
 ): {
   accuracyScore: number;
   isSuccess: boolean;
@@ -154,31 +158,44 @@ export function evaluateSpokenPhrase(
   const wordDiffs: WordDiff[] = [];
   const usedSpokenIndices = new Set<number>();
   let matchedCount = 0;
+  let scorePoints = 0;
 
   targetTokens.forEach((targetWord, idx) => {
     const displayWord = originalTargetWords[idx] || targetWord;
 
-    // Find if spoken tokens contain this word (search nearby window first)
-    let foundIndex = -1;
+    let bestStatus: 'correct' | 'partial' | 'none' = 'none';
+    let bestSpokenIndex = -1;
+
     for (let sIdx = 0; sIdx < spokenTokens.length; sIdx++) {
-      if (!usedSpokenIndices.has(sIdx) && isWordMatch(targetWord, spokenTokens[sIdx])) {
-        foundIndex = sIdx;
+      if (usedSpokenIndices.has(sIdx)) continue;
+      const status = classifyWordMatch(targetWord, spokenTokens[sIdx]);
+      if (status === 'correct') {
+        bestStatus = 'correct';
+        bestSpokenIndex = sIdx;
         break;
+      } else if (status === 'partial' && bestStatus === 'none') {
+        bestStatus = 'partial';
+        bestSpokenIndex = sIdx;
       }
     }
 
-    if (foundIndex !== -1) {
-      usedSpokenIndices.add(foundIndex);
+    if (bestStatus !== 'none' && bestSpokenIndex !== -1) {
+      usedSpokenIndices.add(bestSpokenIndex);
       matchedCount++;
-      wordDiffs.push({ word: displayWord, status: 'correct' });
+      if (bestStatus === 'correct') {
+        scorePoints += 1.0;
+        wordDiffs.push({ word: displayWord, status: 'correct' });
+      } else {
+        scorePoints += 0.85;
+        wordDiffs.push({ word: displayWord, status: 'partial' });
+      }
     } else {
       wordDiffs.push({ word: displayWord, status: 'missing' });
     }
   });
 
-  const rawScore = (matchedCount / targetTokens.length) * 100;
-  // Penalty if spoken has too many extraneous words or is too short
-  let accuracyScore = Math.round(rawScore);
+  const rawScore = (scorePoints / targetTokens.length) * 100;
+  let accuracyScore = Math.min(100, Math.round(rawScore));
   if (spokenTokens.length < targetTokens.length * 0.4) {
     accuracyScore = Math.max(0, Math.round(accuracyScore * 0.6));
   }

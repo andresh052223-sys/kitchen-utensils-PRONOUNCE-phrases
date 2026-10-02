@@ -211,7 +211,7 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({
           </div>
           <div className="font-mono-numbers text-3xl font-bold text-emerald-700">{successRate}%</div>
           <p className="text-[11px] text-stone-400 mt-1">
-            {successRate >= 80 ? 'Objetivo pedagógico alcanzado' : 'Requiere sesiones de refuerzo'}
+            {successRate >= 70 ? 'Objetivo pedagógico alcanzado' : 'Requiere sesiones de refuerzo'}
           </p>
         </div>
 

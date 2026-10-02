@@ -30,7 +30,7 @@ export interface Student {
 
 export interface WordDiff {
   word: string;
-  status: 'correct' | 'missing' | 'incorrect';
+  status: 'correct' | 'missing' | 'incorrect' | 'partial';
 }
 
 export interface PracticeAttempt {

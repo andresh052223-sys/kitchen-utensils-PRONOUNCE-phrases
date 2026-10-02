@@ -19,7 +19,7 @@ import {
   Save,
   BookmarkCheck
 } from 'lucide-react';
-import { UtensilItem, Student, PracticeAttempt, CulinaryCategory } from '../types/culinary';
+import { UtensilItem, Student, PracticeAttempt, CulinaryCategory, WordDiff } from '../types/culinary';
 import { CULINARY_ITEMS } from '../data/culinaryItems';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { evaluateSpokenPhrase, playChime, speakSpanishPhrase } from '../utils/textComparison';
@@ -73,6 +73,8 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
   const [sessionStartTime, setSessionStartTime] = useState<number>(Date.now());
   const [lastEvaluation, setLastEvaluation] = useState<ReturnType<typeof evaluateSpokenPhrase> | null>(null);
   const [hasEvaluatedCurrent, setHasEvaluatedCurrent] = useState<boolean>(false);
+  const [isManualEditing, setIsManualEditing] = useState<boolean>(false);
+  const [manualInputText, setManualInputText] = useState<string>('');
 
   const {
     isListening,
@@ -84,6 +86,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
     startListening,
     stopListening,
     resetTranscript,
+    setManualTranscript,
   } = useSpeechRecognition('en-US'); // Voice engine configured for English technical phrases
 
   // Filter items by category
@@ -92,6 +95,41 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
     : CULINARY_ITEMS.filter(item => item.category === selectedCategory);
 
   const currentItem = filteredItems[currentIndex] || filteredItems[0];
+
+  // Target expected words for live visual script comparison
+  const expectedTargetWords = currentItem
+    ? currentItem.targetPhrase.replace(/[.,;:¡!¿?]/g, '').split(/\s+/).filter(Boolean)
+    : [];
+
+  // Live or evaluated word status comparison against expected script
+  const displayWordDiffs: WordDiff[] = (() => {
+    if (lastEvaluation && hasEvaluatedCurrent) {
+      return lastEvaluation.wordDiffs;
+    }
+    if (fullTranscript.trim() && currentItem) {
+      return evaluateSpokenPhrase(currentItem.targetPhrase, fullTranscript.trim()).wordDiffs;
+    }
+    return expectedTargetWords.map(w => ({ word: w, status: 'missing' as const }));
+  })();
+
+  const spokenWordCount = fullTranscript.trim()
+    ? fullTranscript.trim().split(/\s+/).filter(Boolean).length
+    : 0;
+
+  const handleToggleManualEdit = () => {
+    if (!isManualEditing) {
+      setManualInputText(fullTranscript);
+    }
+    setIsManualEditing(!isManualEditing);
+  };
+
+  const handleApplyManualText = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualInputText.trim() || !currentItem) return;
+    setManualTranscript(manualInputText.trim());
+    performEvaluation(manualInputText.trim());
+    setIsManualEditing(false);
+  };
 
   // Approved attempts and items for this student
   const studentSuccessAttempts = attempts.filter(
@@ -274,7 +312,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
         <div className="flex items-center justify-between md:justify-end gap-2.5 shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-stone-100 flex-wrap">
           <div className="flex items-center gap-1.5 text-xs bg-amber-50 text-amber-900 border border-amber-200/80 px-2.5 py-1 rounded-md font-medium">
             <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-            <span>Aprobación: <strong>≥ 80%</strong></span>
+            <span>Aprobación: <strong>≥ 70%</strong></span>
           </div>
 
           <div 
@@ -403,12 +441,12 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
                     ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
                     : 'text-amber-900 bg-amber-100 hover:bg-amber-200'
                 }`}
-                title={lastEvaluation !== null && !lastEvaluation.isSuccess ? 'Debes alcanzar el 80% para avanzar' : 'Siguiente utensilio'}
+                title={lastEvaluation !== null && !lastEvaluation.isSuccess ? 'Debes alcanzar el 70% para avanzar' : 'Siguiente utensilio'}
               >
                 {lastEvaluation !== null && !lastEvaluation.isSuccess ? (
                   <>
                     <Lock className="w-3.5 h-3.5 text-stone-400" />
-                    <span>Bloqueado (&lt; 80%)</span>
+                    <span>Bloqueado (&lt; 70%)</span>
                   </>
                 ) : (
                   <>
@@ -595,29 +633,117 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
               </div>
             </div>
 
-            {/* Live Transcription Box */}
-            <div className="border border-stone-200 rounded-xl p-4 bg-stone-50/70 space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold text-stone-500">
-                <span>Transcripción Capturada en Tiempo Real</span>
-                {fullTranscript && (
-                  <button
-                    onClick={resetTranscript}
-                    className="text-stone-400 hover:text-stone-700"
-                    title="Limpiar"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
+            {/* ✨ LO QUE DIJISTE (SPEECH-TO-TEXT TRANSCRIPTION) & COMPARACIÓN CONTRA TU GUION ESPERADO */}
+            <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 text-white space-y-4 shadow-lg">
+              {/* Header */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-cyan-400">
+                  <Sparkles className="w-4 h-4 text-cyan-400" />
+                  <span>LO QUE DIJISTE (SPEECH-TO-TEXT TRANSCRIPTION)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleManualEdit}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 underline font-medium transition-colors"
+                >
+                  {isManualEditing ? 'Cancelar edición' : 'Editar transcripción manual'}
+                </button>
+              </div>
+
+              {/* Real Audio Transcription Box */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-stone-400">
+                  <span>Transcripción real de tu audio (solo lo pronunciado):</span>
+                  <span className="text-cyan-400 font-mono-numbers font-medium">
+                    {spokenWordCount} palabras pronunciadas
+                  </span>
+                </div>
+
+                {isManualEditing ? (
+                  <form onSubmit={handleApplyManualText} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={manualInputText}
+                      onChange={(e) => setManualInputText(e.target.value)}
+                      placeholder="Escribe o corrige aquí lo pronunciado..."
+                      className="flex-1 bg-stone-950 border border-stone-700 rounded-xl px-3.5 py-2.5 text-sm text-stone-100 font-mono focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shrink-0 transition-colors"
+                    >
+                      Evaluar
+                    </button>
+                  </form>
+                ) : (
+                  <div className="bg-stone-950/90 border border-stone-800 rounded-xl p-4 min-h-[52px] font-mono text-sm sm:text-base text-stone-100 flex items-center justify-between">
+                    {fullTranscript ? (
+                      <span className="text-cyan-100">"{fullTranscript}"</span>
+                    ) : (
+                      <span className="text-stone-500 italic text-xs">
+                        (Presiona "Hablar" y lee la frase en voz alta).
+                      </span>
+                    )}
+
+                    {fullTranscript && (
+                      <button
+                        onClick={resetTranscript}
+                        className="text-stone-400 hover:text-stone-200 ml-2"
+                        title="Limpiar grabación"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <div className="min-h-[48px] text-sm text-stone-800 font-medium">
-                {fullTranscript ? (
-                  <span className="text-stone-900">"{fullTranscript}"</span>
-                ) : (
-                  <span className="text-stone-400 italic text-xs">
-                    (Ninguna voz captada aún. Presiona el botón rojo y lee la frase).
+              {/* COMPARACIÓN CONTRA TU GUION ESPERADO */}
+              <div className="space-y-3 pt-3 border-t border-stone-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <span className="font-bold uppercase tracking-wider text-stone-200 text-xs sm:text-[13px]">
+                    COMPARACIÓN CONTRA TU GUION ESPERADO:
                   </span>
-                )}
+                  {/* Legend dots matching the reference image */}
+                  <div className="flex items-center gap-3 text-[11px] flex-wrap">
+                    <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                      Correctamente hablado
+                    </span>
+                    <span className="flex items-center gap-1.5 text-amber-400 font-medium">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
+                      Posible detalle / reconocimiento
+                    </span>
+                    <span className="flex items-center gap-1.5 text-rose-400 font-medium">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                      Faltante o no detectada
+                    </span>
+                  </div>
+                </div>
+
+                {/* Word Chips Row matching reference image */}
+                <div className="flex flex-wrap gap-2 p-3.5 bg-stone-950/70 rounded-xl border border-stone-800/80">
+                  {displayWordDiffs.map((diff, idx) => {
+                    let chipStyle = 'border border-stone-700 bg-stone-900/60 text-stone-400';
+                    if (diff.status === 'correct') {
+                      chipStyle = 'border border-emerald-500/80 bg-emerald-950/60 text-emerald-300 font-semibold shadow-2xs';
+                    } else if (diff.status === 'partial') {
+                      chipStyle = 'border border-amber-500/80 bg-amber-950/60 text-amber-300 font-semibold shadow-2xs';
+                    } else if (diff.status === 'missing') {
+                      chipStyle = 'border border-rose-500/80 bg-rose-950/60 text-rose-300';
+                    }
+
+                    return (
+                      <span
+                        key={idx}
+                        className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono tracking-tight transition-all ${chipStyle}`}
+                      >
+                        {diff.word}
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -640,12 +766,12 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
                       <span className={`font-display font-bold text-base block ${
                         lastEvaluation.isSuccess ? 'text-emerald-950' : 'text-amber-950'
                       }`}>
-                        {lastEvaluation.isSuccess ? '¡Frase Aprobada! (≥ 80%)' : 'No Aprobado (< 80%)'}
+                        {lastEvaluation.isSuccess ? '¡Frase Aprobada! (≥ 70%)' : 'No Aprobado (< 70%)'}
                       </span>
                       <span className="text-[11px] text-stone-500">
                         {lastEvaluation.isSuccess
                           ? 'Cumple con el estándar de pronunciación y comprensión técnica.'
-                          : 'Se requiere un mínimo de 80% de precisión para avanzar.'}
+                          : 'Se requiere un mínimo de 70% de precisión para avanzar.'}
                       </span>
                     </div>
                   </div>
@@ -657,37 +783,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
                   </div>
                 </div>
 
-                {/* Word by Word Diff Analysis */}
-                <div className="space-y-1.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
-                    Análisis de Coincidencia Palabra por Palabra:
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 p-3 bg-white rounded-lg border border-stone-200 text-xs">
-                    {lastEvaluation.wordDiffs.map((diff, idx) => (
-                      <span
-                        key={idx}
-                        className={`px-2 py-0.5 rounded-md font-medium ${
-                          diff.status === 'correct'
-                            ? 'bg-emerald-100 text-emerald-900'
-                            : 'bg-amber-100 text-amber-900 line-through opacity-75'
-                        }`}
-                        title={diff.status === 'correct' ? 'Palabra identificada correctamente' : 'Palabra omitida o no reconocida'}
-                      >
-                        {diff.word}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-4 text-[11px] text-stone-500 pt-1">
-                    <span className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-200"></span> Pronunciada con éxito
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-amber-200"></span> Omitida o no concordante
-                    </span>
-                  </div>
-                </div>
-
-                {/* Action recommendations: If < 80%, MUST repeat. If >= 80%, can continue. */}
+                {/* Action recommendations: If < 70%, MUST repeat. If >= 70%, can continue. */}
                 {!lastEvaluation.isSuccess ? (
                   <div className="pt-3 border-t border-amber-200/80 space-y-3">
                     <div className="bg-amber-100/90 border border-amber-300 text-amber-950 rounded-xl p-3 flex items-start gap-2.5 text-xs">
@@ -695,7 +791,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({
                       <div>
                         <span className="font-bold block">Avance Bloqueado: Debes repetir la pronunciación</span>
                         <span className="text-amber-900/90">
-                          Para poder continuar con la siguiente frase, debes alcanzar al menos el 80% de precisión.
+                          Para poder continuar con la siguiente frase, debes alcanzar al menos el 70% de precisión.
                         </span>
                       </div>
                     </div>

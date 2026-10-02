@@ -1,0 +1,11 @@
+{
+  "name": "CulinaryVoice: Práctica y Evaluación de Utensilios de Cocina",
+  "description": "Plataforma de entrenamiento por voz para aprendices de gastronomía: evalúa la pronunciación técnica de utensilios y áreas de cocina con transcripción en tiempo real, registro histórico de intentos y reportes exportables en PDF y CSV.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
+
